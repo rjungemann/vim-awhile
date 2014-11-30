@@ -1,0 +1,48 @@
+#!/usr/bin/env ruby
+
+module Awhile
+  class Awhile
+    def run(vim, server_name, command)
+      split_size = 10
+      scratch_name = "scratch-#{server_name}"
+
+      pid = Process.fork
+      if pid.nil? then
+        # In child
+        mode = `#{vim} --servername #{server_name} --remote-expr "mode()"`.chomp
+
+        pre_script = [
+          %|<ESC>:#{split_size}sp #{scratch_name}<CR>|,
+          %|:setlocal buftype=nofile<CR>|,
+          %|:setlocal bufhidden=hide<CR>|,
+          %|:setlocal noswapfile<CR>|,
+          %|ggVGdi|
+        ]
+
+        post_script = []
+        post_script << %|<ESC><C-w>j|
+        post_script << '<C-l>'
+        post_script << 'a' if mode == 'i'
+
+        `#{vim} --servername #{server_name} --remote-send "#{pre_script.join('')}"`
+
+        open("|#{command}", 'r') do |subprocess|
+          contents = subprocess.read.chomp.split("\n").reverse.join("\n")
+          `#{vim} --servername #{server_name} --remote-send "#{contents}"`
+        end
+
+        `#{vim} --servername #{server_name} --remote-send "#{post_script.join('')}"`
+      else
+        # In parent
+        Process.detach(pid)
+      end
+    end
+  end
+end
+
+command = ARGV[0]
+args = ARGV[1..-1]
+awhile = Awhile::Awhile.new
+
+awhile.send(command, *args) unless command.nil? || command.empty?
+
